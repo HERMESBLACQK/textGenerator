@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.3.2/socket.io.js"></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <link rel="stylesheet" href="./style.css">
+    <title>Search Engine</title>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        // Request microphone access when the page is loaded
+        navigator.mediaDevices
+          .getUserMedia({ audio: true })
+          .then(function (stream) {
+            console.log("Microphone access granted:", stream);
+          })
+          .catch(function (error) {
+            console.error("Error accessing microphone:", error);
+          });
+      });
+    </script>
+  </head>
+
+  <body>
+    <div class="search-container">
+        <h1 class="heading">Voice/Audio to text Engine</h1>
+        <div class="dialogue">
+
+        </div>
+        <div class="action-btns">
+            <button id="recordButton" class="buttonCenter"><span class="material-symbols-outlined">
+                mic
+                </span></button>
+            <button id="viewWords"><span class="material-symbols-outlined">
+                chat_apps_script
+                </span></button>
+        </div>
+        <div class="file-player">
+            <audio id="audioPlayer" controls style="display: none"></audio>
+            <input type="file" id="audioFileInput" style="display: none" />
+            <div id="result"></div>
+        </div>
+        <div id="actions" style="display: none">
+          <button id="saveButton" class="buttonCenter">Save Text</button>
+          <button id="searchButton" class="buttonCenter">Search on the Web</button>
+        </div>
+    </div>
+    <script>
+        const socket = io('http://localhost:5000');
+
+      const viewWords = document.getElementById("viewWords");
+      const recordButton = document.getElementById("recordButton");
+      const audioFileInput = document.getElementById("audioFileInput");
+      const audioPlayer = document.getElementById("audioPlayer");
+      const saveButton = document.getElementById("saveButton");
+      const searchButton = document.getElementById("searchButton");
+      const resultDiv = document.getElementById("result");
+      const actionsDiv = document.getElementById("actions");
+      const dialogueBox = document.querySelector(".dialogue");
+      let recognition;
+      let recognizedText;
+      const texts = [];
+
+      // Create play button
+      const playButton = document.createElement("button");
+      playButton.textContent = "Play";
+      playButton.className = "buttonCenter";
+      playButton.style.display = "none";
+      playButton.addEventListener("click", () => {
+        audioPlayer.play();
+        recognizeSpeechFromAudio(audioPlayer);
+      });
+
+      // Create pause button
+      const pauseButton = document.createElement("button");
+      pauseButton.textContent = "Pause";
+      pauseButton.className = "buttonCenter";
+      pauseButton.style.display = "none";
+      pauseButton.addEventListener("click", () => {
+        audioPlayer.pause();
+      });
+
+      // Append play and pause buttons to actionsDiv
+      actionsDiv.appendChild(playButton);
+      actionsDiv.appendChild(pauseButton);
+
+      recordButton.addEventListener("click", async () => {
+        if (!recognition) {
+          recognition = new webkitSpeechRecognition(); // Use webkitSpeechRecognition for Chrome
+          recognition.continuous = true; // Set to true for continuous recognition
+          recognition.interimResults = false;
+
+          recognition.onresult = async (event) => {
+            recognizedText = event.results[0][0].transcript;
+            //Socket io implementation
+            socket.emit("message", { sender: "Me", recognizedText });
+
+            resultDiv.innerHTML = `<br><strong>You said:</strong> ${recognizedText}`;
+            texts.push(recognizedText);
+            console.log(texts);
+            //continue to push the text into an array of texts so it can be saved as a conversation later
+            // Recognition stops automatically after some time of silence, so restart it immediately
+            recognition.stop();
+            recognition.start();
+          };
+
+          recognition.onend = () => {
+            // Restart recognition when it ends due to silence
+            recognition.start();
+          };
+
+          recognition.onerror = (event) => {
+            console.error("Speech recognition error:", event.error);
+            recognition.stop();
+          };
+        }
+
+        recordButton.disabled = true;
+        resultDiv.innerHTML = `<br><strong class="heading">I am Listening...</strong>`;
+
+        // Start recognition
+        recognition.start();
+      });
+
+      viewWords.addEventListener("click", (e) => {
+        // Clear previous content
+        dialogueBox.innerHTML = "";
+        // Append each recognized word to the dialogueBox
+        texts.forEach((txt) => {
+          const p = document.createElement("p");
+          p.innerHTML = ` <div class="words">${txt}</div>`;
+          dialogueBox.appendChild(p);
+        });
+        console.log(texts);
+      });
+
+      //When the message is received
+      socket.on("message", (data) => {
+        console.log(data.recognizedText); // Use data.recognizedText to log the message content
+      });
+
+      audioFileInput.addEventListener("change", async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const fileReader = new FileReader();
+        fileReader.onload = function () {
+          const audioContext = new AudioContext();
+          audioContext.decodeAudioData(this.result, function (buffer) {
+            const duration = buffer.duration;
+            const fileName = file.name;
+            resultDiv.innerHTML = `<br><strong>Audio File Details:</strong><br>Name: ${fileName}<br>Duration: ${
+              duration.toFixed(2) / 60
+            } seconds`;
+            // Show play button after audio file has been loaded
+            playButton.style.display = "inline-block";
+            pauseButton.style.display = "inline-block";
+            actionsDiv.style.display = "block";
+          });
+        };
+        fileReader.readAsArrayBuffer(file);
+        audioPlayer.src = URL.createObjectURL(file);
+      });
+
+      function recognizeSpeechFromAudio(audio_data) {
+        const recognizer = new webkitSpeechRecognition();
+        recognizer.continuous = true;
+        recognizer.interimResults = false;
+        recognizer.onresult = (event) => {
+          recognizedText = event.results[0][0].transcript;
+          resultDiv.innerHTML = `<br><strong>You said:</strong> ${recognizedText}`;
+          recognizer.stop();
+          // Show the action buttons
+          actionsDiv.style.display = "block";
+        };
+        recognizer.onend = () => {
+          recordButton.disabled = false;
+        };
+        recognizer.onerror = (event) => {
+          console.error("Speech recognition error:", event.error);
+          recognizer.stop();
+        };
+        recognizer.start();
+      }
+
+      saveButton.addEventListener("click", () => {
+        // TODO: Implement save functionality
+        alert("Text saved: " + recognizedText);
+        // Hide the action buttons after saving
+        actionsDiv.style.display = "none";
+      });
+
+      searchButton.addEventListener("click", () => {
+        // Search the web with the recognized text
+        searchWeb(recognizedText);
+        // Hide the action buttons after searching
+        actionsDiv.style.display = "none";
+      });
+
+      async function searchWeb(query) {
+        const response = await fetch("/process_audio", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ query }),
+        });
+
+        const data = await response.json();
+        const searchResults = data.search_results || [];
+
+        if (searchResults.length > 0) {
+          resultDiv.innerHTML += `<br><br><strong>Search results:</strong>`;
+          for (let i = 0; i < searchResults.length; i++) {
+            resultDiv.innerHTML += `<br>(${i + 1}) <a href="${
+              searchResults[i]
+            }" target="_blank">${searchResults[i]}</a>`;
+          }
+        } else {
+          resultDiv.innerHTML += "<br>No results found!";
+        }
+      }
+    </script>
+  </body>
+</html>
